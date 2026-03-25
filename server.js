@@ -17,13 +17,12 @@ const CACHE_TTL  = 5 * 60 * 1000; // 5 min
 
 // ── Token refresh ─────────────────────────────────────────────────────────────
 async function refreshToken() {
-  const body = new URLSearchParams({
-    grant_type:    'refresh_token',
-    client_id:     ZOHO_CLIENT_ID,
-    client_secret: ZOHO_CLIENT_SECRET,
-    refresh_token: ZOHO_REFRESH_TOKEN,
+  const body = `grant_type=refresh_token&client_id=${ZOHO_CLIENT_ID}&client_secret=${ZOHO_CLIENT_SECRET}&refresh_token=${ZOHO_REFRESH_TOKEN}`;
+  const res  = await fetch(`${ZOHO_ACCOUNTS}/oauth/v2/token`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
   });
-  const res  = await fetch(`${ZOHO_ACCOUNTS}/oauth/v2/token`, { method: 'POST', body });
   const json = await res.json();
   if (!json.access_token) throw new Error('Token refresh failed: ' + JSON.stringify(json));
   accessToken = json.access_token;
