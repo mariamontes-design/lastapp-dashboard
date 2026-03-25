@@ -10,14 +10,16 @@ const ZOHO_API           = 'https://www.zohoapis.eu/crm/v6';
 const ZOHO_ACCOUNTS      = 'https://accounts.zoho.eu';
 const Q1_TARGET          = 55;
 
-let accessToken  = null;
+let accessToken  = process.env.ZOHO_ACCESS_TOKEN || null;
+let refreshToken_ = process.env.ZOHO_REFRESH_TOKEN || null; // live token, may differ from env var
 let cachedData   = null;
 let lastFetched  = 0;
 const CACHE_TTL  = 5 * 60 * 1000; // 5 min
 
 // ── Token refresh ─────────────────────────────────────────────────────────────
 async function refreshToken() {
-  const body = `grant_type=refresh_token&client_id=${ZOHO_CLIENT_ID}&client_secret=${ZOHO_CLIENT_SECRET}&refresh_token=${ZOHO_REFRESH_TOKEN}`;
+  const rt = refreshToken_ || ZOHO_REFRESH_TOKEN;
+  const body = `grant_type=refresh_token&client_id=${ZOHO_CLIENT_ID}&client_secret=${ZOHO_CLIENT_SECRET}&refresh_token=${rt}`;
   const res  = await fetch(`${ZOHO_ACCOUNTS}/oauth/v2/token`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -26,7 +28,19 @@ async function refreshToken() {
   const json = await res.json();
   if (!json.access_token) throw new Error('Token refresh failed: ' + JSON.stringify(json));
   accessToken = json.access_token;
+  if (json.refresh_token) refreshToken_ = json.refresh_token;
   console.log('[token] refreshed');
+}
+
+// Exchange authorization code for tokens (called from /callback)
+async function exchangeCode(code, redirectUri) {
+  const body = `grant_type=authorization_code&client_id=${ZOHO_CLIENT_ID}&client_secret=${ZOHO_CLIENT_SECRET}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${code}`;
+  const res  = await fetch(`${ZOHO_ACCOUNTS}/oauth/v2/token`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  return res.json();
 }
 
 // ── Paginated fetch from Zoho ─────────────────────────────────────────────────
@@ -358,6 +372,44 @@ app.get('/', async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ status: 'ok', cached: !!cachedData, lastFetched }));
+
+// ── OAuth setup: genera la URL de autorización de Zoho ────────────────────────
+app.get('/setup', (req, res) => {
+  const redirectUri = `${req.protocol}://${req.get('host')}/callback`;
+  const authUrl = `${ZOHO_ACCOUNTS}/oauth/v2/auth?scope=ZohoCRM.modules.ALL,ZohoCRM.settings.ALL&client_id=${ZOHO_CLIENT_ID}&response_type=code&access_type=offline&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0f1117;color:#e2e8f0">
+    <h2>Zoho OAuth Setup</h2>
+    <p>Click el botón para autorizar el acceso desde este servidor:</p>
+    <a href="${authUrl}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#3b82f6;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Autorizar con Zoho</a>
+    <p style="margin-top:24px;color:#718096;font-size:13px">Redirect URI configurado: <code>${redirectUri}</code><br>Añade esta URL en Zoho API Console → tu cliente OAuth → Authorized Redirect URIs</p>
+  </body></html>`);
+});
+
+// ── OAuth callback: recibe el code y genera tokens desde este servidor ────────
+app.get('/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.status(400).send('<pre>Error de autorización: ' + (error || 'sin code') + '</pre>');
+  }
+  const redirectUri = `${req.protocol}://${req.get('host')}/callback`;
+  try {
+    const json = await exchangeCode(code, redirectUri);
+    if (!json.access_token) {
+      return res.status(400).send('<pre>Error intercambiando code: ' + JSON.stringify(json) + '</pre>');
+    }
+    accessToken  = json.access_token;
+    refreshToken_ = json.refresh_token;
+    res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0f1117;color:#e2e8f0">
+      <h2 style="color:#68d391">✅ Tokens generados correctamente</h2>
+      <p>Copia este valor y actualiza la variable <strong>ZOHO_REFRESH_TOKEN</strong> en Railway:</p>
+      <pre style="background:#1a1f2e;padding:16px;border-radius:8px;border:1px solid #2d3748;word-break:break-all;color:#63b3ed">${json.refresh_token}</pre>
+      <p style="color:#718096;font-size:13px">En Railway → tu proyecto → Variables → ZOHO_REFRESH_TOKEN → pega el valor de arriba → Save → Redeploy</p>
+      <a href="/" style="display:inline-block;margin-top:16px;padding:10px 20px;background:#3b82f6;color:#fff;border-radius:8px;text-decoration:none">Ir al Dashboard</a>
+    </body></html>`);
+  } catch (err) {
+    res.status(500).send('<pre>Error: ' + err.message + '</pre>');
+  }
+});
 
 app.get('/debug', async (req, res) => {
   const clientId     = ZOHO_CLIENT_ID     ? ZOHO_CLIENT_ID.slice(0,12)+'...'     : 'MISSING';
