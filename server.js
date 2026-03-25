@@ -359,6 +359,21 @@ app.get('/', async (req, res) => {
 
 app.get('/health', (req, res) => res.json({ status: 'ok', cached: !!cachedData, lastFetched }));
 
+app.get('/debug', async (req, res) => {
+  const clientId     = ZOHO_CLIENT_ID     ? ZOHO_CLIENT_ID.slice(0,12)+'...'     : 'MISSING';
+  const clientSecret = ZOHO_CLIENT_SECRET ? ZOHO_CLIENT_SECRET.slice(0,8)+'...'  : 'MISSING';
+  const refreshTok   = ZOHO_REFRESH_TOKEN ? ZOHO_REFRESH_TOKEN.slice(0,12)+'...' : 'MISSING';
+  // Try a live token refresh and report result
+  let refreshResult;
+  try {
+    await refreshToken();
+    refreshResult = 'OK — access token starts: ' + accessToken.slice(0,15);
+  } catch (e) {
+    refreshResult = 'FAILED: ' + e.message;
+  }
+  res.json({ clientId, clientSecret, refreshTok, refreshResult });
+});
+
 app.get('/data', async (req, res) => {
   try {
     res.json(await getData());
