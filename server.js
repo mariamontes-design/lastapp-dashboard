@@ -363,6 +363,13 @@ app.get('/debug', async (req, res) => {
   const clientId     = ZOHO_CLIENT_ID     ? ZOHO_CLIENT_ID.slice(0,12)+'...'     : 'MISSING';
   const clientSecret = ZOHO_CLIENT_SECRET ? ZOHO_CLIENT_SECRET.slice(0,8)+'...'  : 'MISSING';
   const refreshTok   = ZOHO_REFRESH_TOKEN ? ZOHO_REFRESH_TOKEN.slice(0,12)+'...' : 'MISSING';
+  // Get server's outbound IP
+  let serverIP = 'unknown';
+  try {
+    const ipRes = await fetch('https://api.ipify.org?format=json');
+    const ipJson = await ipRes.json();
+    serverIP = ipJson.ip;
+  } catch {}
   // Try a live token refresh and report result
   let refreshResult;
   try {
@@ -371,7 +378,7 @@ app.get('/debug', async (req, res) => {
   } catch (e) {
     refreshResult = 'FAILED: ' + e.message;
   }
-  res.json({ clientId, clientSecret, refreshTok, refreshResult });
+  res.json({ clientId, clientSecret, refreshTok, serverIP, refreshResult });
 });
 
 app.get('/data', async (req, res) => {
